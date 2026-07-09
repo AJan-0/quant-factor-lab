@@ -1,0 +1,94 @@
+{
+  "data": {
+    "provider": "okx",
+    "frequency": "1h",
+    "page_limit": 300,
+    "max_pages": 1,
+    "include_unconfirmed": true,
+    "universe": [
+      {
+        "symbol": "ETH-USD",
+        "asset_class": "crypto",
+        "currency": "USD"
+      },
+      {
+        "symbol": "BTC-USD",
+        "asset_class": "crypto",
+        "currency": "USD"
+      }
+    ],
+    "adjustments": [],
+    "start": "2025-06-29",
+    "end": "2026-07-09"
+  },
+  "mining": {
+    "enable_operator_miner": true,
+    "enable_ml_miner": true,
+    "operator_windows": [
+      5,
+      10,
+      20
+    ],
+    "target_horizon": 5,
+    "ml_max_features": 10,
+    "ml_train_fraction": 0.7,
+    "ml_n_estimators": 20,
+    "random_state": 7
+  },
+  "evaluation": {
+    "forward_horizons": [
+      5
+    ],
+    "min_observations": 50,
+    "min_cross_section_assets": 2
+  },
+  "derivatives": {
+    "enabled": true,
+    "history_enabled": true,
+    "history_limit": 20,
+    "history_period": "1D"
+  },
+  "microstructure": {
+    "enabled": true,
+    "depth_size": 50,
+    "trade_limit": 100
+  },
+  "onchain": {
+    "enabled": true,
+    "provider": "coinmetrics_community",
+    "metrics": [
+      "AdrActCnt",
+      "TxCnt"
+    ]
+  },
+  "validation": {
+    "enabled": true,
+    "n_splits": 3,
+    "train_fraction": 0.55,
+    "embargo_bars": 1,
+    "min_train_observations": 40,
+    "min_test_bars": 12
+  },
+  "realtime": {
+    "enabled": true,
+    "channels": [
+      "books5",
+      "trades"
+    ],
+    "liquidations_enabled": true
+  },
+  "backtest": {
+    "horizon": 5,
+    "mode": "long_short",
+    "top_n": 1,
+    "bottom_n": 1,
+    "transaction_cost_bps": 5,
+    "slippage_bps": 2,
+    "spread_cost_multiplier": 0.5,
+    "funding_enabled": true,
+    "funding_rate_column": "annualized_funding_rate",
+    "funding_cost_multiplier": 1,
+    "annualization": 1752
+  },
+  "output_dir": "runs/okx-smoke"
+}

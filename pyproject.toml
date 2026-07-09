@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-factor-lab"
+version = "0.1.0"
+description = "Personal crypto and US equity factor mining, evaluation, and backtesting pipeline."
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "scikit-learn>=1.4",
+  "websocket-client>=1.8",
+]
+
+[project.optional-dependencies]
+data = [
+  "ccxt>=4.0",
+  "yfinance>=0.2",
+]
+
+[project.scripts]
+quant-factor-lab = "quant_factor_lab.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["quant_factor_lab*"]
+
+[tool.setuptools.package-data]
+quant_factor_lab = ["admin/static/*"]
+

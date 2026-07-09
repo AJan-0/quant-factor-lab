@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>量化因子研究工作台</title>
+    <link rel="stylesheet" href="app.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">Q</div>
+          <div>
+            <h1>量化因子研究工作台</h1>
+            <p>Crypto / 美股 / 实盘研究后台</p>
+          </div>
+        </div>
+        <nav class="nav-list" aria-label="功能区">
+          <button class="nav-item is-active" type="button" data-view="overview">总览</button>
+          <button class="nav-item" type="button" data-view="realtime">实时流</button>
+          <button class="nav-item" type="button" data-view="market">K线</button>
+          <button class="nav-item" type="button" data-view="config">参数</button>
+          <button class="nav-item" type="button" data-view="data">数据</button>
+          <button class="nav-item" type="button" data-view="signals">信号</button>
+          <button class="nav-item" type="button" data-view="decisions">决策</button>
+          <button class="nav-item" type="button" data-view="results">验证</button>
+          <button class="nav-item" type="button" data-view="history">运行</button>
+        </nav>
+        <div class="side-status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="serverState">连接中</span>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">本地研究控制台</p>
+            <h2 id="viewTitle">总览</h2>
+          </div>
+          <div class="toolbar" aria-label="主要操作">
+            <button class="button button-secondary" type="button" id="reloadButton">刷新</button>
+            <button class="button button-secondary" type="button" id="saveButton">保存配置</button>
+            <button class="button button-primary" type="button" id="runButton">运行流水线</button>
+            <button class="button button-danger" type="button" id="cancelJobButton" disabled>取消任务</button>
+          </div>
+        </header>
+
+        <section class="view is-active" id="overviewView" aria-labelledby="viewTitle">
+          <section class="cockpit-shell" aria-label="交易决策工作台">
+            <div class="cockpit-topline">
+              <div>
+                <p class="eyebrow">Trading Cockpit</p>
+                <h3 id="cockpitHeadline">等待市场快照</h3>
+              </div>
+              <div class="cockpit-controls" aria-label="工作台控制">
+                <label>标的 <select id="cockpitSymbolSelect"></select></label>
+                <label>指标模板 <select id="cockpitTemplateSelect"></select></label>
+              </div>
+            </div>
+
+            <div class="cockpit-layout">
+              <section class="panel cockpit-chart-panel">
+                <div class="panel-header cockpit-chart-header">
+                  <div>
+                    <h3>行情结构</h3>
+                    <span class="panel-note" id="cockpitChartNote">K线、成交量与当前交易结构</span>
+                  </div>
+                  <div class="indicator-chip-row" id="cockpitActiveIndicators"></div>
+                </div>
+                <div class="cockpit-chart-stage">
+                  <canvas id="cockpitCanvas" width="1180" height="620" aria-label="交易决策K线图"></canvas>
+                </div>
+                <div class="cockpit-market-strip" id="cockpitMarketStrip"></div>
+              </section>
+
+              <aside class="panel cockpit-playbook" aria-label="交易剧本">
+                <div class="playbook-header">
+                  <span class="playbook-symbol" id="cockpitPlaybookSymbol">-</span>
+                  <span class="stance-badge is-neutral" id="cockpitPlaybookBias">观望</span>
+                </div>
+                <h3 id="cockpitPlaybookTitle">等待交易剧本</h3>
+                <p class="playbook-summary" id="cockpitPlaybookSummary">运行流水线后，这里会把因子、盘口、衍生品和链上证据翻译成交易员能直接使用的判断。</p>
+                <div class="playbook-score">
+                  <span>置信度</span>
+                  <strong id="cockpitConfidence">-</strong>
+                </div>
+                <dl class="playbook-facts" id="cockpitPlaybookFacts"></dl>
+                <div class="playbook-section">
+                  <h4>触发条件</h4>
+                  <ul id="cockpitTriggerList"></ul>
+                </div>
+                <div class="playbook-section">
+                  <h4>失效条件</h4>
+                  <ul id="cockpitInvalidationList"></ul>
+                </div>
+              </aside>
+            </div>
+
+            <div class="cockpit-lower-grid">
+              <section class="panel">
+                <div class="panel-header">
+                  <div>
+                    <h3>指标模板与作用</h3>
+                    <span class="panel-note" id="cockpitTemplateNote">选择模板查看 TradingView 社区常用指标在本系统中的用途</span>
+                  </div>
+                </div>
+                <div class="indicator-catalog" id="cockpitIndicatorCatalog"></div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-header">
+                  <div>
+                    <h3>证据与冲突</h3>
+                    <span class="panel-note">把分散指标翻译成交易员语言</span>
+                  </div>
+                </div>
+                <div class="evidence-grid">
+                  <div>
+                    <h4>支持证据</h4>
+                    <ul class="evidence-list" id="cockpitEvidenceList"></ul>
+                  </div>
+                  <div>
+                    <h4>风险冲突</h4>
+                    <ul class="evidence-list conflict" id="cockpitConflictList"></ul>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <div class="cockpit-lower-grid">
+              <section class="panel">
+                <div class="panel-header">
+                  <div>
+                    <h3>真实数据状态</h3>
+                    <span class="panel-note" id="sourceHealthNote">等待数据源健康报告</span>
+                  </div>
+                </div>
+                <div class="source-messages" id="sourceHealthMessages"></div>
+                <div class="table-wrap source-status-table compact-table">
+                  <table>
+                    <thead>
+                      <tr><th>范围</th><th>标的</th><th>来源</th><th>状态</th><th>最新时间</th><th>说明</th></tr>
+                    </thead>
+                    <tbody id="sourceStatusBody"></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="panel">
+                <div class="panel-header">
+                  <div>
+                    <h3>盘口与链上快照</h3>
+                    <span class="panel-note" id="microstructureNote">等待盘口和链上指标</span>
+                  </div>
+                </div>
+                <div class="snapshot-grid" id="cockpitContextSnapshot"></div>
+                <div class="table-wrap microstructure-table compact-table">
+                  <table>
+                    <thead>
+                      <tr><th>标的</th><th>价差bps</th><th>深度倾斜</th><th>逐笔</th><th>状态</th></tr>
+                    </thead>
+                    <tbody id="microstructureBody"></tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="realtimeView" aria-labelledby="viewTitle">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>OKX WebSocket实时流</h3>
+                <span class="panel-note" id="realtimeStatus">未启动</span>
+              </div>
+              <div class="toolbar">
+                <button class="button button-primary" type="button" id="startRealtimeButton">启动实时流</button>
+                <button class="button button-secondary" type="button" id="stopRealtimeButton">停止</button>
+              </div>
+            </div>
+            <div class="realtime-grid">
+              <div class="mini-panel">
+                <h4>实时盘口</h4>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr><th>合约</th><th>买一</th><th>卖一</th><th>价差bps</th><th>买深</th><th>卖深</th></tr>
+                    </thead>
+                    <tbody id="realtimeBookBody"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="mini-panel">
+                <h4>逐笔成交</h4>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr><th>时间</th><th>合约</th><th>方向</th><th>价格</th><th>数量</th></tr>
+                    </thead>
+                    <tbody id="realtimeTradesBody"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="mini-panel">
+                <h4>强平流</h4>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr><th>时间</th><th>合约</th><th>方向</th><th>数量</th><th>破产价</th></tr>
+                    </thead>
+                    <tbody id="realtimeLiquidationsBody"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="mini-panel">
+                <h4>服务日志</h4>
+                <div class="log-stream" id="realtimeEvents"></div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="marketView" aria-labelledby="viewTitle">
+          <section class="panel market-terminal">
+            <div class="panel-header market-header">
+              <div>
+                <h3>TradingView风格K线面板</h3>
+                <span class="panel-note" id="klineStatus">等待行情数据</span>
+              </div>
+              <div class="market-controls" aria-label="K线参数">
+                <label>标的 <select id="klineSymbolSelect"></select></label>
+                <label>数量 <select id="klineLimitSelect">
+                  <option value="80">80</option>
+                  <option value="160">160</option>
+                  <option value="240" selected>240</option>
+                  <option value="400">400</option>
+                </select></label>
+              </div>
+            </div>
+            <div class="trading-layout">
+              <div class="chart-stage">
+                <canvas id="klineCanvas" width="1120" height="560" aria-label="OHLC K线图"></canvas>
+              </div>
+              <aside class="quote-panel" id="quotePanel" aria-label="行情摘要"></aside>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header">
+              <h3>OHLCV明细</h3>
+              <span class="panel-note">当前标的最新K线</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>时间</th><th>开</th><th>高</th><th>低</th><th>收</th><th>成交量</th><th>涨跌</th></tr></thead>
+                <tbody id="klineTableBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="configView" aria-labelledby="viewTitle">
+          <div class="form-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h3>研究档位</h3>
+                  <span class="panel-note" id="configPathLabel"></span>
+                </div>
+              </div>
+              <div class="preset-row">
+                <button class="button button-secondary" type="button" data-preset="eth_fast">ETH趋势快速</button>
+                <button class="button button-secondary" type="button" data-preset="okx_smoke">OKX冒烟验证</button>
+                <button class="button button-secondary" type="button" data-preset="deep_research">深度研究</button>
+              </div>
+              <div class="field-grid">
+                <label>数据源 <select data-path="data.provider" id="providerSelect"></select></label>
+                <label>频率 <select data-path="data.frequency" id="frequencySelect"></select></label>
+                <label>开始日期 <input type="date" data-path="data.start" /></label>
+                <label>结束日期 <input type="date" data-path="data.end" /></label>
+                <label>输出目录 <input type="text" data-path="output_dir" /></label>
+                <label>OKX最大页数 <input type="number" data-path="data.max_pages" data-type="number" min="1" /></label>
+                <label>窗口 <input type="text" data-path="mining.operator_windows" data-type="csv_numbers" /></label>
+                <label>目标周期 <input type="number" data-path="mining.target_horizon" data-type="number" min="1" /></label>
+                <label class="toggle-line"><input type="checkbox" data-path="mining.enable_ml_miner" data-type="boolean" /> 启用ML挖掘</label>
+                <label class="toggle-line"><input type="checkbox" data-path="data.include_unconfirmed" data-type="boolean" /> 包含未确认K线</label>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header"><h3>真实数据上下文</h3><span class="panel-note">衍生品、盘口、链上、实时流</span></div>
+              <div class="field-grid">
+                <label class="toggle-line"><input type="checkbox" data-path="derivatives.enabled" data-type="boolean" /> 衍生品快照</label>
+                <label class="toggle-line"><input type="checkbox" data-path="derivatives.history_enabled" data-type="boolean" /> 衍生品历史</label>
+                <label>历史条数 <input type="number" data-path="derivatives.history_limit" data-type="number" min="1" max="100" /></label>
+                <label>历史周期 <input type="text" data-path="derivatives.history_period" /></label>
+                <label class="toggle-line"><input type="checkbox" data-path="microstructure.enabled" data-type="boolean" /> REST盘口逐笔</label>
+                <label>盘口档位 <input type="number" data-path="microstructure.depth_size" data-type="number" min="1" max="400" /></label>
+                <label class="toggle-line"><input type="checkbox" data-path="onchain.enabled" data-type="boolean" /> Coin Metrics链上数据</label>
+                <label class="toggle-line"><input type="checkbox" data-path="realtime.enabled" data-type="boolean" /> OKX WebSocket实时流</label>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header"><h3>回测与验证</h3><span class="panel-note">实盘成本、资金费、purged walk-forward</span></div>
+              <div class="field-grid">
+                <label>模式 <select data-path="backtest.mode" id="modeSelect"></select></label>
+                <label>回测周期 <input type="number" data-path="backtest.horizon" data-type="number" min="1" /></label>
+                <label>多头数量 <input type="number" data-path="backtest.top_n" data-type="number" min="1" /></label>
+                <label>空头数量 <input type="number" data-path="backtest.bottom_n" data-type="number" min="1" /></label>
+                <label>手续费bps <input type="number" data-path="backtest.transaction_cost_bps" data-type="number" step="0.5" /></label>
+                <label>滑点bps <input type="number" data-path="backtest.slippage_bps" data-type="number" step="0.5" /></label>
+                <label>盘口价差乘数 <input type="number" data-path="backtest.spread_cost_multiplier" data-type="number" step="0.1" /></label>
+                <label class="toggle-line"><input type="checkbox" data-path="backtest.funding_enabled" data-type="boolean" /> 资金费模型</label>
+                <label class="toggle-line"><input type="checkbox" data-path="validation.enabled" data-type="boolean" /> Walk-forward验证</label>
+                <label>折数 <input type="number" data-path="validation.n_splits" data-type="number" min="1" /></label>
+                <label>Embargo bars <input type="number" data-path="validation.embargo_bars" data-type="number" min="0" /></label>
+                <label>训练占比 <input type="number" data-path="validation.train_fraction" data-type="number" step="0.05" min="0.2" max="0.85" /></label>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header"><h3>标的池</h3><button class="button button-secondary" type="button" id="addInstrumentButton">新增</button></div>
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>代码</th><th>资产</th><th>交易所覆盖</th><th>计价</th><th></th></tr></thead>
+                  <tbody id="universeBody"></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header"><h3>高级JSON</h3><button class="button button-secondary" type="button" id="applyJsonButton">应用JSON</button></div>
+              <textarea id="jsonEditor" spellcheck="false" aria-label="流水线JSON配置"></textarea>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="dataView" aria-labelledby="viewTitle">
+          <section class="panel">
+            <div class="panel-header"><h3>数据质量</h3><span class="panel-note" id="dataQualityNote">等待质量报告</span></div>
+            <div class="quality-summary" id="dataQualitySummary"></div>
+            <div class="table-wrap quality-table">
+              <table>
+                <thead><tr><th>标的</th><th>状态</th><th>记录</th><th>重复</th><th>缺失</th><th>价格异常</th><th>零量</th><th>极端收益</th><th>疑似缺K</th><th>质量分</th></tr></thead>
+                <tbody id="dataQualityBody"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><h3>链上真实指标</h3><span class="panel-note" id="onchainNote">等待 Coin Metrics 数据</span></div>
+            <div class="table-wrap"><table><thead><tr><th>时间</th><th>标的</th><th>活跃地址</th><th>7日变化</th><th>交易数</th><th>7日变化</th><th>状态</th><th>解读</th></tr></thead><tbody id="onchainBody"></tbody></table></div>
+          </section>
+          <section class="panel">
+            <div class="panel-header"><h3>原始数据版本库</h3><span class="panel-note">每次运行输入数据的哈希和产物路径</span></div>
+            <div class="table-wrap"><table><thead><tr><th>数据集</th><th>来源</th><th>标的</th><th>记录</th><th>起止</th><th>内容哈希</th><th>产物</th></tr></thead><tbody id="rawManifestBody"></tbody></table></div>
+          </section>
+        </section>
+
+        <section class="view" id="signalsView" aria-labelledby="viewTitle">
+          <section class="panel">
+            <div class="panel-header signal-header">
+              <div><h3>因子信号雷达</h3><span class="panel-note" id="signalRadarNote">等待因子信号</span></div>
+              <div class="signal-controls">
+                <label>标的 <select id="signalSymbolSelect"></select></label>
+                <label>信号 <select id="signalSideSelect"><option value="ALL">全部</option><option value="BULLISH">偏多</option><option value="BEARISH">偏空</option><option value="NEUTRAL">中性</option></select></label>
+              </div>
+            </div>
+            <div class="signal-summary" id="signalSummary"></div>
+            <div class="table-wrap signal-table"><table><thead><tr><th>标的</th><th>因子</th><th>主题</th><th>当前值</th><th>分位</th><th>Sharpe</th><th>胜率</th><th>信号</th><th>可信度</th><th>解读</th></tr></thead><tbody id="signalRadarBody"></tbody></table></div>
+          </section>
+        </section>
+
+        <section class="view" id="decisionsView" aria-labelledby="viewTitle">
+          <section class="panel"><div class="panel-header"><h3>交易决策卡</h3><span class="panel-note" id="decisionCardsNote">量价、因子、衍生品、链上共振</span></div><div class="decision-grid" id="decisionCardsGrid"></div></section>
+          <section class="panel"><div class="panel-header"><h3>决策明细</h3><span class="panel-note">方向、证据、风险与失效条件</span></div><div class="table-wrap decision-table"><table><thead><tr><th>标的</th><th>倾向</th><th>可信度</th><th>主因子</th><th>拥挤度</th><th>链上</th><th>证据</th><th>风险</th><th>失效</th></tr></thead><tbody id="decisionCardsBody"></tbody></table></div></section>
+        </section>
+
+        <section class="view" id="resultsView" aria-labelledby="viewTitle">
+          <div class="split-layout">
+            <section class="panel"><div class="panel-header"><h3>权益曲线</h3><span class="panel-note" id="equityLabel">暂无运行结果</span></div><canvas id="equityCanvas" width="900" height="320" aria-label="回测权益曲线"></canvas></section>
+            <section class="panel"><div class="panel-header"><h3>因子评分</h3><span class="panel-note" id="topFactorNote">暂无结果</span></div><canvas id="factorCanvas" width="640" height="320" aria-label="因子评分图"></canvas></section>
+          </div>
+          <section class="panel"><div class="panel-header"><h3>因子回测排行</h3><span class="panel-note">收益、Sharpe、回撤和成本后的表现</span></div><div class="table-wrap factor-backtest-table"><table><thead><tr><th>因子</th><th>周期</th><th>总收益</th><th>年化</th><th>Sharpe</th><th>回撤</th><th>胜率</th><th>换手</th><th>执行成本</th><th>资金费</th></tr></thead><tbody id="factorBacktestBody"></tbody></table></div></section>
+          <section class="panel"><div class="panel-header"><h3>Walk-forward / Purged CV</h3><span class="panel-note">训练选因子，跳过embargo后测试</span></div><div class="table-wrap"><table><thead><tr><th>折</th><th>训练区间</th><th>测试区间</th><th>因子</th><th>训练分</th><th>测试收益</th><th>Sharpe</th><th>回撤</th><th>错误</th></tr></thead><tbody id="walkForwardBody"></tbody></table></div></section>
+          <section class="panel"><div class="panel-header"><h3>运行产物</h3><span class="panel-note">生成文件</span></div><div class="artifact-list" id="artifactList"></div></section>
+        </section>
+
+        <section class="view" id="historyView" aria-labelledby="viewTitle">
+          <section class="panel">
+            <div class="panel-header"><div><h3>运行历史</h3><span class="panel-note">最近流水线任务与实验结果</span></div><button class="button button-secondary" type="button" id="reloadRunsButton">刷新历史</button></div>
+            <div class="table-wrap history-table"><table><thead><tr><th>状态</th><th>创建</th><th>结束</th><th>因子数</th><th>Sharpe</th><th>首选因子</th><th>输出目录</th><th>错误</th></tr></thead><tbody id="runHistoryBody"></tbody></table></div>
+          </section>
+          <section class="panel"><div class="panel-header"><h3>当前任务日志</h3><span class="panel-note" id="jobLogNote">暂无任务</span></div><div class="log-stream" id="jobLogStream"></div></section>
+        </section>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="runtime-config.js" defer></script>
+    <script src="app.js" defer></script>
+  </body>
+</html>
