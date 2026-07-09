@@ -12,7 +12,7 @@ from http import HTTPStatus
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 from urllib.parse import parse_qs, unquote, urlparse
 
 import pandas as pd
@@ -362,6 +362,7 @@ def create_admin_server(
     admin_token: str | None = None,
     rate_limit: int = 240,
     rate_window_seconds: int = 60,
+    cors_origins: str | Iterable[str] | None = None,
 ) -> ThreadingHTTPServer:
     app = AdminApp(config_path=config_path, root=root)
     static_dir = (Path(__file__).parent / "static").resolve()
@@ -369,6 +370,7 @@ def create_admin_server(
     realtime_service = OKXRealtimeService()
     limiter = RateLimiter(max_requests=rate_limit, window_seconds=rate_window_seconds)
     token = admin_token if admin_token is not None else os.environ.get("QUANT_FACTOR_ADMIN_TOKEN")
+    allowed_cors_origins = _normalize_cors_origins(cors_origins)
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "QuantFactorAdmin/0.1"
@@ -483,6 +485,19 @@ def create_admin_server(
             except Exception as exc:
                 self._send_error_json(exc)
 
+        def do_OPTIONS(self) -> None:
+            parsed = urlparse(self.path)
+            if parsed.path.startswith("/api/") and self.headers.get("Origin") and not self._cors_origin():
+                self._send_json(
+                    {"error": {"code": "CORS_ORIGIN_DENIED", "message": "Origin is not allowed"}},
+                    status=HTTPStatus.FORBIDDEN,
+                )
+                return
+            self.send_response(HTTPStatus.NO_CONTENT.value)
+            self.send_header("Content-Length", "0")
+            self._send_security_headers()
+            self.end_headers()
+
 
         def _preflight(self, path: str) -> bool:
             client = self.client_address[0] if self.client_address else "unknown"
@@ -517,6 +532,28 @@ def create_admin_server(
             self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
             csp = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'"
             self.send_header("Content-Security-Policy", csp)
+            self._send_cors_headers()
+
+        def _cors_origin(self) -> str | None:
+            origin = self.headers.get("Origin", "").strip()
+            if not origin or not allowed_cors_origins:
+                return None
+            if "*" in allowed_cors_origins:
+                return "*"
+            normalized = _normalize_cors_origin(origin)
+            if normalized in allowed_cors_origins:
+                return normalized
+            return None
+
+        def _send_cors_headers(self) -> None:
+            origin = self._cors_origin()
+            if not origin:
+                return
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PUT, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Admin-Token")
+            self.send_header("Access-Control-Max-Age", "600")
 
 
         def log_message(self, format: str, *args: Any) -> None:
@@ -607,6 +644,7 @@ def serve_admin(
     admin_token: str | None = None,
     rate_limit: int = 240,
     rate_window_seconds: int = 60,
+    cors_origins: str | Iterable[str] | None = None,
 ) -> None:
     server = create_admin_server(
         config_path=config_path,
@@ -615,13 +653,45 @@ def serve_admin(
         admin_token=admin_token,
         rate_limit=rate_limit,
         rate_window_seconds=rate_window_seconds,
+        cors_origins=cors_origins,
     )
     address = f"http://{server.server_address[0]}:{server.server_address[1]}"
     print(f"Quant Factor Lab admin running at {address}")
     print(f"Config: {Path(config_path).resolve()}")
     if admin_token or os.environ.get("QUANT_FACTOR_ADMIN_TOKEN"):
         print("Admin token protection enabled")
+    active_cors_origins = _normalize_cors_origins(cors_origins)
+    if active_cors_origins:
+        print(f"CORS origins: {', '.join(sorted(active_cors_origins))}")
     server.serve_forever()
+
+
+def _normalize_cors_origins(origins: str | Iterable[str] | None) -> set[str]:
+    if origins is None:
+        origins = os.environ.get("QUANT_FACTOR_ADMIN_CORS_ORIGINS", "")
+    if isinstance(origins, str):
+        items = origins.split(",")
+    else:
+        items = []
+        for origin in origins:
+            items.extend(str(origin).split(","))
+    return {
+        normalized
+        for item in items
+        if (normalized := _normalize_cors_origin(str(item)))
+    }
+
+
+def _normalize_cors_origin(origin: str) -> str:
+    value = origin.strip()
+    if not value:
+        return ""
+    if value == "*":
+        return "*"
+    parsed = urlparse(value)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}"
+    return value.rstrip("/")
 
 
 def _read_json_if_exists(path: Path) -> dict[str, Any] | None:

@@ -13,14 +13,19 @@ const state = {
   activeView: "overview",
 };
 
-const runtime = {
-  apiBaseUrl: window.QFL_API_BASE_URL || "",
-  staticSite:
-    !window.QFL_API_BASE_URL && (
-    Boolean(window.QFL_STATIC_SITE) ||
-    window.location.protocol === "file:" ||
-    window.location.hostname.endsWith("github.io")),
-};
+const API_BASE_STORAGE_KEY = "qflApiBaseUrl";
+
+const runtime = (() => {
+  const apiBaseUrl = getConfiguredApiBaseUrl();
+  return {
+    apiBaseUrl,
+    staticSite:
+      !apiBaseUrl && (
+      Boolean(window.QFL_STATIC_SITE) ||
+      window.location.protocol === "file:" ||
+      window.location.hostname.endsWith("github.io")),
+  };
+})();
 
 const providers = ["synthetic", "csv", "yfinance", "ccxt", "okx"];
 const frequencies = ["1d", "1h", "5m", "1m"];
@@ -118,6 +123,7 @@ function bindNavigation() {
 
 function bindActions() {
   byId("reloadButton").addEventListener("click", loadAll);
+  byId("apiSettingsButton").addEventListener("click", configureApiBaseUrl);
   byId("saveButton").addEventListener("click", saveConfig);
   byId("runButton").addEventListener("click", runPipeline);
   byId("cancelJobButton").addEventListener("click", cancelActiveJob);
@@ -1283,6 +1289,7 @@ function setActiveView(view) {
 
 function applyRuntimeMode() {
   document.body.classList.toggle("is-static-site", runtime.staticSite);
+  updateApiSettingsButton();
   if (!runtime.staticSite) return;
   byId("saveButton").title = "静态网页版不能保存配置，需要连接后端 API";
   byId("runButton").title = "静态网页版不能启动流水线，需要连接后端 API";
@@ -1291,6 +1298,36 @@ function applyRuntimeMode() {
   const realtimeStop = byId("stopRealtimeButton");
   if (realtimeStart) realtimeStart.title = "静态网页版不能启动 WebSocket 实时流";
   if (realtimeStop) realtimeStop.title = "静态网页版没有实时流服务";
+}
+
+function updateApiSettingsButton() {
+  const button = byId("apiSettingsButton");
+  if (!button) return;
+  button.textContent = runtime.apiBaseUrl ? "切换 API" : "连接 API";
+  button.title = runtime.apiBaseUrl || "设置 HTTPS 后端 API 地址";
+}
+
+function configureApiBaseUrl() {
+  const current = runtime.apiBaseUrl || "";
+  const raw = window.prompt("输入后端 API 地址；留空回到静态快照模式", current);
+  if (raw === null) return;
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    clearStoredApiBaseUrl();
+    window.location.reload();
+    return;
+  }
+  const normalized = normalizeApiBaseUrl(trimmed);
+  if (!normalized) {
+    toast("API 地址必须以 http:// 或 https:// 开头", true);
+    return;
+  }
+  if (window.location.protocol === "https:" && new URL(normalized).protocol === "http:") {
+    toast("GitHub Pages 页面需要连接 HTTPS API", true);
+    return;
+  }
+  storeApiBaseUrl(normalized);
+  window.location.reload();
 }
 
 async function fetchJson(url, options = {}) {
@@ -1318,7 +1355,7 @@ async function fetchJson(url, options = {}) {
 function resolveApiUrl(url) {
   if (runtime.staticSite) return staticEndpointFor(url);
   if (!runtime.apiBaseUrl) return url;
-  return new URL(url, runtime.apiBaseUrl).toString();
+  return new URL(String(url).replace(/^\/+/, ""), ensureTrailingSlash(runtime.apiBaseUrl)).toString();
 }
 
 function staticEndpointFor(url) {
@@ -1338,7 +1375,63 @@ function staticEndpointFor(url) {
 
 function artifactHref(name) {
   const safeName = encodeURIComponent(name);
-  return runtime.staticSite ? `artifacts/${safeName}` : `/api/artifact?name=${safeName}`;
+  return runtime.staticSite ? `artifacts/${safeName}` : resolveApiUrl(`/api/artifact?name=${safeName}`);
+}
+
+function getConfiguredApiBaseUrl() {
+  const queryValue = apiBaseUrlFromQuery();
+  if (queryValue !== null) return queryValue;
+  const configured = normalizeApiBaseUrl(window.QFL_API_BASE_URL || "");
+  if (configured) return configured;
+  return normalizeApiBaseUrl(readStoredApiBaseUrl());
+}
+
+function apiBaseUrlFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("apiBaseUrl")) return null;
+  const normalized = normalizeApiBaseUrl(params.get("apiBaseUrl") || "");
+  if (normalized) storeApiBaseUrl(normalized);
+  else clearStoredApiBaseUrl();
+  return normalized;
+}
+
+function normalizeApiBaseUrl(value) {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    if (window.location.protocol === "https:" && parsed.protocol === "http:") return "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch (_) {
+    return "";
+  }
+}
+
+function readStoredApiBaseUrl() {
+  try {
+    return localStorage.getItem(API_BASE_STORAGE_KEY) || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function storeApiBaseUrl(value) {
+  try {
+    localStorage.setItem(API_BASE_STORAGE_KEY, value);
+  } catch (_) {
+  }
+}
+
+function clearStoredApiBaseUrl() {
+  try {
+    localStorage.removeItem(API_BASE_STORAGE_KEY);
+  } catch (_) {
+  }
+}
+
+function ensureTrailingSlash(value) {
+  return value.endsWith("/") ? value : `${value}/`;
 }
 
 function withDefaults(config) {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ def export_static_site(
     site_dir: str | Path = "site",
     root: str | Path | None = None,
     market_limit_per_symbol: int = 1000,
+    api_base_url: str | None = None,
 ) -> dict[str, Any]:
     """Export the admin console as a static snapshot site.
 
@@ -36,8 +38,9 @@ def export_static_site(
     if target.name in {".git", "runs", "quant_factor_lab", "tests"}:
         raise ValueError(f"Refusing to export into reserved project directory: {target.name}")
 
+    resolved_api_base_url = (api_base_url if api_base_url is not None else os.environ.get("QFL_API_BASE_URL", "")).strip()
     _reset_dir(target)
-    _copy_static_assets(target)
+    _copy_static_assets(target, resolved_api_base_url)
     _write_nojekyll(target)
 
     api_dir = target / "api"
@@ -68,6 +71,7 @@ def export_static_site(
         "mode": "static",
         "siteDir": _public_path(target, project_root),
         "sourceOutputDir": _public_path(output_dir, project_root),
+        "apiBaseUrl": resolved_api_base_url,
         "apiFiles": sorted(path.name for path in api_dir.glob("*.json")),
         "artifacts": copied_artifacts,
     }
@@ -81,12 +85,14 @@ def _reset_dir(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
 
 
-def _copy_static_assets(target: Path) -> None:
+def _copy_static_assets(target: Path, api_base_url: str = "") -> None:
     static_dir = Path(__file__).parent / "admin" / "static"
     for name in ("index.html", "app.css", "app.js", "runtime-config.js"):
         shutil.copy2(static_dir / name, target / name)
+    static_site = "false" if api_base_url else "true"
     (target / "runtime-config.js").write_text(
-        'window.QFL_STATIC_SITE = true;\nwindow.QFL_API_BASE_URL = "";\n',
+        f"window.QFL_STATIC_SITE = {static_site};\n"
+        f"window.QFL_API_BASE_URL = {json.dumps(api_base_url, ensure_ascii=False)};\n",
         encoding="utf-8",
     )
 

@@ -55,6 +55,24 @@ The frontend prompts for the token on the first protected API request. Pipeline 
 
 Admin job metadata is persisted in `runs/admin.sqlite3`. The console exposes a run-history view backed by `/api/runs`, including status, config hash, output directory, summary metrics, and failure errors.
 
+### Mobile GitHub Pages + live backend
+
+When the frontend is opened from GitHub Pages, the page is served over HTTPS and runs on `https://ajan-0.github.io`. A phone cannot reach a backend at `localhost`, and an HTTPS page cannot call a plain HTTP API. Expose the admin backend through a trusted HTTPS URL, then allow the Pages origin:
+
+```powershell
+$env:QUANT_FACTOR_ADMIN_TOKEN="change-me"
+$env:QUANT_FACTOR_ADMIN_CORS_ORIGINS="https://ajan-0.github.io"
+python -m quant_factor_lab admin --config examples/demo_config.json --host 0.0.0.0 --port 8765
+```
+
+Put an HTTPS reverse proxy or tunnel such as Cloudflare Tunnel, ngrok, Caddy, Nginx, or a VPS load balancer in front of `http://127.0.0.1:8765`. Then either set the repository variable `QFL_API_BASE_URL` to that HTTPS API URL before the Pages workflow runs, or open the Pages URL once with:
+
+```text
+https://ajan-0.github.io/quant-factor-lab/?apiBaseUrl=https://your-api.example.com
+```
+
+The page stores that API URL in the browser. Use the toolbar `连接 API` button to change it or leave the prompt blank to return to the static snapshot mode.
+
 ## Web 部署：最快方案
 
 最快可以上线的是 **GitHub Pages 静态快照版**。它会把最新一次研究结果、K线、因子评分、回测排行、决策卡和运行产物导出成纯静态网页，适合手机、平板和桌面浏览，也适合发给自己或团队做复盘。
@@ -91,6 +109,12 @@ python -m http.server 9001 -d site
 ```js
 window.QFL_STATIC_SITE = false;
 window.QFL_API_BASE_URL = "https://your-api.example.com";
+```
+
+Static export also accepts the same URL directly:
+
+```powershell
+python -m quant_factor_lab export-site --config examples/demo_config.json --site-dir site --api-base-url https://your-api.example.com
 ```
 
 生产级公网部署前，需要补齐鉴权、HTTPS、CORS 白名单、日志监控、任务队列、数据库备份和密钥管理。

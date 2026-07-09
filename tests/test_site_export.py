@@ -79,6 +79,24 @@ class StaticSiteExportTests(unittest.TestCase):
             self.assertNotIn(str(root), summary_text)
             self.assertIn("./runs/static-test", summary_text.replace("\\", "/"))
 
+    def test_export_static_site_can_point_to_remote_api(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            config_path = root / "config.json"
+            config_path.write_text(json.dumps(site_export_config()), encoding="utf-8")
+
+            manifest = export_static_site(
+                config_path=config_path,
+                site_dir=root / "site",
+                root=root,
+                api_base_url="https://api.example.com/qfl/",
+            )
+
+            runtime_config = (root / "site" / "runtime-config.js").read_text(encoding="utf-8")
+            self.assertEqual(manifest["apiBaseUrl"], "https://api.example.com/qfl/")
+            self.assertIn("QFL_STATIC_SITE = false", runtime_config)
+            self.assertIn('"https://api.example.com/qfl/"', runtime_config)
+
     def test_export_static_site_refuses_project_root(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)

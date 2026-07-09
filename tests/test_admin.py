@@ -153,6 +153,93 @@ class AdminServerTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
 
+    def test_cors_preflight_allows_configured_pages_origin(self) -> None:
+        origin = "https://ajan-0.github.io"
+        server = create_admin_server(
+            self.config_path,
+            host="127.0.0.1",
+            port=0,
+            root=self.root,
+            admin_token="secret",
+            cors_origins=[origin],
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        base_url = f"http://{host}:{port}"
+        try:
+            request = Request(
+                f"{base_url}/api/config",
+                headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "PUT",
+                    "Access-Control-Request-Headers": "content-type, authorization",
+                },
+                method="OPTIONS",
+            )
+
+            with urlopen(request, timeout=10) as response:
+                self.assertEqual(response.status, 204)
+                self.assertEqual(response.headers["Access-Control-Allow-Origin"], origin)
+                self.assertIn("PUT", response.headers["Access-Control-Allow-Methods"])
+                self.assertIn("Authorization", response.headers["Access-Control-Allow-Headers"])
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_cors_response_headers_are_sent_for_allowed_origin(self) -> None:
+        origin = "https://ajan-0.github.io"
+        server = create_admin_server(
+            self.config_path,
+            host="127.0.0.1",
+            port=0,
+            root=self.root,
+            cors_origins=[origin],
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        base_url = f"http://{host}:{port}"
+        try:
+            request = Request(f"{base_url}/api/health", headers={"Origin": origin})
+
+            with urlopen(request, timeout=10) as response:
+                self.assertEqual(response.status, 200)
+                self.assertEqual(response.headers["Access-Control-Allow-Origin"], origin)
+                self.assertEqual(response.headers["Vary"], "Origin")
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_cors_preflight_rejects_unconfigured_origin(self) -> None:
+        server = create_admin_server(
+            self.config_path,
+            host="127.0.0.1",
+            port=0,
+            root=self.root,
+            cors_origins=["https://ajan-0.github.io"],
+        )
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host, port = server.server_address
+        base_url = f"http://{host}:{port}"
+        try:
+            request = Request(
+                f"{base_url}/api/config",
+                headers={
+                    "Origin": "https://example.invalid",
+                    "Access-Control-Request-Method": "PUT",
+                },
+                method="OPTIONS",
+            )
+
+            with self.assertRaises(HTTPError) as error:
+                urlopen(request, timeout=10)
+            self.assertEqual(error.exception.code, 403)
+        finally:
+            server.shutdown()
+            server.server_close()
+
     def test_rate_limit_rejects_excess_requests(self) -> None:
         server = create_admin_server(self.config_path, host="127.0.0.1", port=0, root=self.root, rate_limit=1)
         thread = threading.Thread(target=server.serve_forever, daemon=True)

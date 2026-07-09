@@ -21,10 +21,21 @@ def main(argv: list[str] | None = None) -> int:
     admin_parser.add_argument("--admin-token", default=None, help="Optional bearer token for admin API endpoints")
     admin_parser.add_argument("--rate-limit", type=int, default=240, help="Max requests per client in each rate window")
     admin_parser.add_argument("--rate-window", type=int, default=60, help="Rate limit window in seconds")
+    admin_parser.add_argument(
+        "--cors-origin",
+        action="append",
+        default=None,
+        help="Browser Origin allowed to call the admin API; repeat for multiple origins",
+    )
 
     export_parser = subparsers.add_parser("export-site", help="Export a GitHub Pages compatible static site")
     export_parser.add_argument("--config", default="examples/demo_config.json", help="Path to a JSON pipeline config")
     export_parser.add_argument("--site-dir", default="site", help="Directory to write the static site into")
+    export_parser.add_argument(
+        "--api-base-url",
+        default=None,
+        help="Optional remote admin API base URL for the exported site; defaults to QFL_API_BASE_URL",
+    )
     export_parser.add_argument(
         "--market-limit-per-symbol",
         type=int,
@@ -47,6 +58,7 @@ def main(argv: list[str] | None = None) -> int:
             admin_token=args.admin_token,
             rate_limit=args.rate_limit,
             rate_window_seconds=args.rate_window,
+            cors_origins=args.cors_origin,
         )
         return 0
     if args.command == "export-site":
@@ -56,6 +68,7 @@ def main(argv: list[str] | None = None) -> int:
             config_path=Path(args.config),
             site_dir=Path(args.site_dir),
             market_limit_per_symbol=args.market_limit_per_symbol,
+            api_base_url=args.api_base_url,
         )
         print(json.dumps(manifest, indent=2, ensure_ascii=False))
         return 0
