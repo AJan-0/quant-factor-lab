@@ -1,4 +1,6 @@
 .venv/
+.vercel/
+_uv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -6,6 +8,8 @@ __pycache__/
 .ruff_cache/
 dist/
 build/
+uv.lock
+.python-version
 *.egg-info/
 .env
 .env.*
@@ -15,3 +19,4 @@ site/
 data/raw/
 data/cache/
 
+.vercel

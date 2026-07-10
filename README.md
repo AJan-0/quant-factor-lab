@@ -19,6 +19,8 @@ python -m quant_factor_lab admin --config examples/demo_config.json --port 8765
 python -m unittest discover -s tests
 ```
 
+Install with `pip install -e .[data,ml]` when you want local ML-assisted factor mining with scikit-learn. The Vercel serverless deployment keeps ML disabled by default to stay inside Python Function bundle limits.
+
 The demo writes outputs under `runs/okx-smoke`:
 
 - `market_data.csv`
@@ -72,6 +74,27 @@ https://ajan-0.github.io/quant-factor-lab/?apiBaseUrl=https://your-api.example.c
 ```
 
 The page stores that API URL in the browser. Use the toolbar `连接 API` button to change it or leave the prompt blank to return to the static snapshot mode.
+
+### Deploy frontend and API to Vercel
+
+The repository also includes `vercel.json` and a Python serverless entrypoint at `api/index.py`. This path deploys the same admin UI and a same-origin `/api/*` backend to Vercel, so mobile browsers do not need to connect from GitHub Pages to a separate API host.
+
+Recommended Vercel environment variables:
+
+```text
+QUANT_FACTOR_ADMIN_TOKEN=change-me
+QUANT_FACTOR_ADMIN_CORS_ORIGINS=https://ajan-0.github.io
+```
+
+Deploy from the repo root:
+
+```powershell
+npx vercel --prod
+```
+
+After deployment, open the Vercel production URL on mobile. The UI calls `/api/config`, `/api/jobs`, `/api/market`, `/api/realtime`, and other endpoints on the same Vercel domain. The first protected API request prompts for `QUANT_FACTOR_ADMIN_TOKEN`.
+
+Vercel mode has an important runtime difference from the local Python server: it uses short-lived serverless functions. Pipeline jobs run synchronously and return the finished job payload directly; OKX realtime uses REST polling snapshots instead of a long-lived WebSocket process. For TradingView-level streaming depth, trades, and persistent job history, keep Vercel for the frontend/API gateway and add an external worker/state layer such as Redis plus a long-running worker on Fly.io, Railway, Render, or a VPS.
 
 ## Web 部署：最快方案
 

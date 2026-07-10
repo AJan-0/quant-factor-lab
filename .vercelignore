@@ -1,0 +1,17 @@
+.git
+.github
+.venv
+.vercel
+.python-version
+_uv
+build
+dist
+runs
+site
+data/raw
+data/cache
+tests
+uv.lock
+__pycache__
+*.pyc
+*.egg-info
