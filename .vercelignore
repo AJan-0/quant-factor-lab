@@ -4,6 +4,7 @@
 .vercel
 .python-version
 _uv
+node_modules
 build
 dist
 runs

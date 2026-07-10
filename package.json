@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:js": "node --check vercel/realtime-ws-core.js && node --check api/realtime-ws.js && node --check quant_factor_lab/admin/static/app.js && node --check public/app.js",
+    "test:ws": "node --test tests/realtime_ws.test.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.21.0"
+  }
+}

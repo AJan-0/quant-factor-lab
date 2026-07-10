@@ -14,6 +14,19 @@ const state = {
 };
 
 const API_BASE_STORAGE_KEY = "qflApiBaseUrl";
+const REALTIME_POLL_INTERVAL_MS = 3000;
+const REALTIME_RECONNECT_MAX_MS = 30000;
+const REALTIME_SOCKET_DISABLE_MS = 60000;
+
+const realtimeSocket = {
+  ws: null,
+  reconnectTimer: null,
+  reconnectDelay: 1000,
+  failureCount: 0,
+  disabledUntil: 0,
+  manualStop: false,
+  opened: false,
+};
 
 const runtime = (() => {
   const apiBaseUrl = getConfiguredApiBaseUrl();
@@ -112,7 +125,7 @@ document.addEventListener("DOMContentLoaded", () => {
   fillSelect("modeSelect", modes);
   fillTemplateSelect();
   loadAll();
-  window.setInterval(refreshRealtime, 3000);
+  window.setInterval(refreshRealtime, REALTIME_POLL_INTERVAL_MS);
 });
 
 function bindNavigation() {
@@ -163,6 +176,7 @@ async function loadAll() {
     await loadMarketSeries();
     state.dirty = false;
     render();
+    maybeStartRealtimeSocket({ silent: true });
     setServerState(runtime.staticSite ? "静态快照" : "已连接", true);
   } catch (error) {
     setServerState("未连接", false);
@@ -273,8 +287,11 @@ async function refreshJobLogs(jobId = state.activeJobId) {
 }
 
 async function refreshRealtime() {
+  if (isRealtimeSocketActive() || realtimeSocket.reconnectTimer) return;
   try {
-    state.realtime = await fetchJson("/api/realtime");
+    const payload = await fetchJson("/api/realtime");
+    payload.transport ||= "rest";
+    state.realtime = payload;
     renderRealtime();
   } catch (_) {
   }
@@ -285,8 +302,14 @@ async function startRealtime() {
     toast("静态网页版不能连接实时流；请部署后端 WebSocket 服务", true);
     return;
   }
+  if (connectRealtimeSocket({ force: true })) {
+    toast("WebSocket 实时流连接中");
+    return;
+  }
   try {
-    state.realtime = await fetchJson("/api/realtime/start", { method: "POST", body: "{}" });
+    const payload = await fetchJson("/api/realtime/start", { method: "POST", body: "{}" });
+    payload.transport ||= "rest";
+    state.realtime = payload;
     renderRealtime();
     toast("实时流启动请求已发送");
   } catch (error) {
@@ -299,13 +322,200 @@ async function stopRealtime() {
     toast("静态网页版没有实时流服务", true);
     return;
   }
+  if (disconnectRealtimeSocket()) {
+    state.realtime = realtimeWithEvent("INFO", "WebSocket 实时流已停止", {
+      status: "stopped",
+      stoppedAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+      transport: "websocket",
+    });
+    renderRealtime();
+    toast("实时流已停止");
+    return;
+  }
   try {
-    state.realtime = await fetchJson("/api/realtime/stop", { method: "POST", body: "{}" });
+    const payload = await fetchJson("/api/realtime/stop", { method: "POST", body: "{}" });
+    payload.transport ||= "rest";
+    state.realtime = payload;
     renderRealtime();
     toast("实时流已停止");
   } catch (error) {
     toast(error.message, true);
   }
+}
+
+function maybeStartRealtimeSocket(options = {}) {
+  if (state.config?.realtime?.enabled === false) return false;
+  if (isRealtimeSocketActive() || realtimeSocket.reconnectTimer) return true;
+  return connectRealtimeSocket(options);
+}
+
+function connectRealtimeSocket({ silent = false, force = false } = {}) {
+  if (!supportsRealtimeSocket()) return false;
+  if (!force && Date.now() < realtimeSocket.disabledUntil) return false;
+  if (isRealtimeSocketActive()) return true;
+
+  const socketUrl = realtimeSocketUrl();
+  if (!socketUrl) return false;
+
+  realtimeSocket.manualStop = false;
+  realtimeSocket.opened = false;
+  realtimeSocket.disabledUntil = force ? 0 : realtimeSocket.disabledUntil;
+  window.clearTimeout(realtimeSocket.reconnectTimer);
+  realtimeSocket.reconnectTimer = null;
+
+  state.realtime = realtimeWithEvent("INFO", "WebSocket 实时流连接中", {
+    status: "starting",
+    error: null,
+    transport: "websocket",
+  });
+  renderRealtime();
+
+  const ws = new WebSocket(socketUrl);
+  realtimeSocket.ws = ws;
+
+  ws.addEventListener("open", () => {
+    if (realtimeSocket.ws !== ws) return;
+    realtimeSocket.opened = true;
+    realtimeSocket.failureCount = 0;
+    realtimeSocket.reconnectDelay = 1000;
+    state.realtime = realtimeWithEvent("INFO", "WebSocket 已连接", {
+      status: "running",
+      error: null,
+      transport: "websocket",
+    });
+    renderRealtime();
+  });
+
+  ws.addEventListener("message", (event) => {
+    if (realtimeSocket.ws !== ws) return;
+    let message;
+    try {
+      message = JSON.parse(event.data);
+    } catch (_) {
+      return;
+    }
+    if (["snapshot", "realtime", "heartbeat"].includes(message.type) && message.payload) {
+      message.payload.transport = "websocket";
+      state.realtime = message.payload;
+      renderRealtime();
+    }
+  });
+
+  ws.addEventListener("close", () => {
+    if (realtimeSocket.ws !== ws) return;
+    realtimeSocket.ws = null;
+    if (realtimeSocket.manualStop) return;
+    if (!realtimeSocket.opened) realtimeSocket.failureCount += 1;
+    if (realtimeSocket.failureCount >= 3) {
+      realtimeSocket.disabledUntil = Date.now() + REALTIME_SOCKET_DISABLE_MS;
+      state.realtime = realtimeWithEvent("WARN", "WebSocket 暂不可用，临时切换 REST 轮询", {
+        status: "starting",
+        transport: "rest",
+      });
+      renderRealtime();
+      refreshRealtime();
+      return;
+    }
+    scheduleRealtimeReconnect();
+  });
+
+  ws.addEventListener("error", () => {
+    if (realtimeSocket.ws !== ws) return;
+    state.realtime = realtimeWithEvent("WARN", "WebSocket 连接异常，等待重连", {
+      status: "starting",
+      transport: "websocket",
+    });
+    if (!silent) renderRealtime();
+  });
+
+  return true;
+}
+
+function disconnectRealtimeSocket() {
+  const hadSocket = Boolean(realtimeSocket.ws || realtimeSocket.reconnectTimer);
+  realtimeSocket.manualStop = true;
+  window.clearTimeout(realtimeSocket.reconnectTimer);
+  realtimeSocket.reconnectTimer = null;
+  realtimeSocket.disabledUntil = 0;
+  realtimeSocket.failureCount = 0;
+  realtimeSocket.reconnectDelay = 1000;
+  const ws = realtimeSocket.ws;
+  realtimeSocket.ws = null;
+  if (ws && ws.readyState < WebSocket.CLOSING) ws.close(1000, "Stopped by user");
+  return hadSocket;
+}
+
+function scheduleRealtimeReconnect() {
+  if (realtimeSocket.manualStop || realtimeSocket.reconnectTimer) return;
+  const delay = realtimeSocket.reconnectDelay;
+  realtimeSocket.reconnectDelay = Math.min(realtimeSocket.reconnectDelay * 2, REALTIME_RECONNECT_MAX_MS);
+  state.realtime = realtimeWithEvent("WARN", `WebSocket 已断开，${Math.ceil(delay / 1000)} 秒后重连`, {
+    status: "starting",
+    transport: "websocket",
+  });
+  renderRealtime();
+  realtimeSocket.reconnectTimer = window.setTimeout(() => {
+    realtimeSocket.reconnectTimer = null;
+    connectRealtimeSocket({ silent: true });
+  }, delay);
+}
+
+function supportsRealtimeSocket() {
+  return !runtime.staticSite && "WebSocket" in window;
+}
+
+function isRealtimeSocketActive() {
+  const ws = realtimeSocket.ws;
+  return Boolean(ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING));
+}
+
+function realtimeSocketUrl() {
+  try {
+    const base = runtime.apiBaseUrl || window.location.origin;
+    const url = new URL("/ws/realtime", ensureTrailingSlash(base));
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const symbols = realtimeSymbols();
+    const channels = Array.isArray(state.config?.realtime?.channels) ? state.config.realtime.channels.filter(Boolean) : [];
+    if (symbols.length) url.searchParams.set("symbols", symbols.join(","));
+    if (channels.length) url.searchParams.set("channels", channels.join(","));
+    url.searchParams.set("liquidations", String(state.config?.realtime?.liquidations_enabled !== false));
+    const token = sessionStorage.getItem("qflAdminToken");
+    if (token) url.searchParams.set("token", token);
+    return url.toString();
+  } catch (_) {
+    return "";
+  }
+}
+
+function realtimeSymbols() {
+  return (state.config?.data?.universe || [])
+    .filter((item) => String(item.asset_class || "").toLowerCase() === "crypto")
+    .map((item) => item.exchange || item.symbol)
+    .filter(Boolean);
+}
+
+function realtimeWithEvent(level, message, patch = {}) {
+  const current = state.realtime || {};
+  const events = [...(current.events || []), {
+    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    level,
+    message,
+  }].slice(-120);
+  return {
+    status: "starting",
+    error: null,
+    startedAt: current.startedAt || null,
+    stoppedAt: current.stoppedAt || null,
+    messageCount: current.messageCount || 0,
+    subscribedArgs: current.subscribedArgs || [],
+    orderBooks: current.orderBooks || [],
+    trades: current.trades || [],
+    liquidations: current.liquidations || [],
+    transport: current.transport || "websocket",
+    ...current,
+    ...patch,
+    events,
+  };
 }
 
 async function loadMarketSeries() {
@@ -593,7 +803,8 @@ function renderMicrostructureSnapshot() {
 function renderRealtime() {
   const data = state.realtime || {};
   const meta = realtimeMeta(data.status);
-  byId("realtimeStatus").textContent = `${meta.label} / 消息 ${formatNumber(data.messageCount, 0)}${data.error ? ` / ${data.error}` : ""}`;
+  const transport = data.transport === "websocket" ? "WebSocket" : data.transport === "rest" ? "REST" : (isRealtimeSocketActive() ? "WebSocket" : "REST");
+  byId("realtimeStatus").textContent = `${meta.label} / ${transport} / 消息 ${formatNumber(data.messageCount, 0)}${data.error ? ` / ${data.error}` : ""}`;
   byId("realtimeBookBody").innerHTML = (data.orderBooks || []).length
     ? data.orderBooks.map((row) => `<tr><td>${escapeHtml(row.inst_id)}</td><td>${formatNumber(row.best_bid, 2)}</td><td>${formatNumber(row.best_ask, 2)}</td><td>${formatNumber(row.spread_bps, 2)}</td><td>${formatUsd(row.bid_depth_usd)}</td><td>${formatUsd(row.ask_depth_usd)}</td></tr>`).join("")
     : emptyRow(6, "暂无实时盘口");
@@ -1505,7 +1716,7 @@ function runStatusMeta(value) {
 }
 
 function realtimeMeta(value) {
-  const map = { stopped: "未启动", starting: "启动中", running: "运行中", error: "错误" };
+  const map = { stopped: "未启动", starting: "启动中", running: "运行中", reconnecting: "重连中", error: "错误" };
   return { label: map[value] || value || "未知" };
 }
 

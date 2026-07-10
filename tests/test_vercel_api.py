@@ -71,6 +71,13 @@ class VercelApiTests(unittest.TestCase):
 
 
 class VercelStaticAssetTests(unittest.TestCase):
+    def test_vercel_config_enables_websocket_route(self) -> None:
+        payload = json.loads((PROJECT_ROOT / "vercel.json").read_text(encoding="utf-8"))
+
+        self.assertTrue(payload["fluid"])
+        self.assertIn({"source": "/ws/realtime", "destination": "/api/realtime-ws"}, payload["rewrites"])
+        self.assertGreaterEqual(payload["functions"]["api/realtime-ws.js"]["maxDuration"], 300)
+
     def test_public_assets_match_admin_static_assets(self) -> None:
         for name in ("index.html", "app.css", "app.js", "runtime-config.js"):
             with self.subTest(name=name):

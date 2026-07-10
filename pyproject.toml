@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "quant-factor-lab"
 version = "0.1.0"
 description = "Personal crypto and US equity factor mining, evaluation, and backtesting pipeline."
-requires-python = ">=3.11"
+requires-python = "~=3.12.0"
 dependencies = [
   "numpy>=1.26",
   "pandas>=2.2",

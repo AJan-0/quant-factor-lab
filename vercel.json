@@ -1,9 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "fluid": true,
   "rewrites": [
+    { "source": "/ws/realtime", "destination": "/api/realtime-ws" },
     { "source": "/api/:path*", "destination": "/api/index.py" }
   ],
   "functions": {
+    "api/realtime-ws.js": {
+      "maxDuration": 300,
+      "excludeFiles": "{.github/**,.vercel/**,_uv/**,build/**,data/**,dist/**,docs/**,runs/**,site/**,tests/**,*.egg-info/**,uv.lock}"
+    },
     "api/index.py": {
       "maxDuration": 60,
       "excludeFiles": "{.github/**,.vercel/**,_uv/**,build/**,data/**,dist/**,docs/**,runs/**,site/**,tests/**,*.egg-info/**,uv.lock}"
