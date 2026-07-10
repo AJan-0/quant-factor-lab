@@ -5,6 +5,7 @@ import hmac
 import os
 import time
 import uuid
+from importlib import resources
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -20,11 +21,18 @@ from quant_factor_lab.types import AssetClass, DataRequest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PUBLIC_ROOT = PROJECT_ROOT / "public"
 RUNTIME_ROOT = Path(os.environ.get("QFL_VERCEL_RUNTIME_ROOT", "/tmp/quant-factor-lab")).resolve()
 CONFIG_PATH = RUNTIME_ROOT / "config.json"
 JOBS_DIR = RUNTIME_ROOT / "jobs"
 REALTIME_CACHE_PATH = RUNTIME_ROOT / "realtime.json"
 REALTIME_CACHE_SECONDS = int(os.environ.get("QFL_VERCEL_REALTIME_CACHE_SECONDS", "15"))
+STATIC_CONTENT_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+    ".js": "application/javascript; charset=utf-8",
+    ".json": "application/json; charset=utf-8",
+}
 
 
 class handler(BaseHTTPRequestHandler):
@@ -40,6 +48,8 @@ class handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         try:
             if not self._preflight(parsed.path):
+                return
+            if self._send_static_route(parsed.path):
                 return
             app = _admin_app()
             if parsed.path == "/api/health":
@@ -148,6 +158,37 @@ class handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_static_route(self, path: str) -> bool:
+        if path in {"", "/", "/index.html"}:
+            return self._send_public_file("index.html")
+        if path == "/favicon.ico":
+            self.send_response(HTTPStatus.NO_CONTENT.value)
+            self._send_common_headers(content_type="image/x-icon")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return True
+        static_name = path.lstrip("/")
+        if "/" in static_name or "\\" in static_name:
+            return False
+        if static_name in {"app.css", "app.js", "runtime-config.js"}:
+            return self._send_public_file(static_name)
+        return False
+
+    def _send_public_file(self, name: str) -> bool:
+        loaded = _load_static_asset(name)
+        if loaded is None:
+            return False
+        body, suffix = loaded
+        content_type = STATIC_CONTENT_TYPES.get(suffix, "application/octet-stream")
+        if content_type.startswith("text/") or "javascript" in content_type or "json" in content_type:
+            body = body.replace(b"QFL_STATIC_SITE = true", b"QFL_STATIC_SITE = false")
+        self.send_response(HTTPStatus.OK.value)
+        self._send_common_headers(content_type=content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return True
+
     def _preflight(self, path: str) -> bool:
         token = os.environ.get("QUANT_FACTOR_ADMIN_TOKEN")
         if token and path.startswith("/api/") and path != "/api/health" and not self._authorized(token):
@@ -211,6 +252,23 @@ class handler(BaseHTTPRequestHandler):
 def _admin_app() -> AdminApp:
     _ensure_runtime_config()
     return AdminApp(config_path=CONFIG_PATH, root=RUNTIME_ROOT)
+
+
+def _load_static_asset(name: str) -> tuple[bytes, str] | None:
+    local_path = (PUBLIC_ROOT / name).resolve()
+    try:
+        local_path.relative_to(PUBLIC_ROOT)
+    except ValueError:
+        return None
+    if local_path.is_file():
+        return local_path.read_bytes(), local_path.suffix
+    try:
+        packaged = resources.files("quant_factor_lab.admin").joinpath("static", name)
+        if packaged.is_file():
+            return packaged.read_bytes(), Path(name).suffix
+    except (FileNotFoundError, ModuleNotFoundError):
+        return None
+    return None
 
 
 def _ensure_runtime_config() -> None:

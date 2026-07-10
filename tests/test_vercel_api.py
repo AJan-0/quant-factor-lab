@@ -42,6 +42,35 @@ class VercelApiTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["mode"], "vercel")
 
+    def test_root_serves_static_index_when_vercel_routes_to_python_handler(self) -> None:
+        with urlopen(f"{self.base_url}/", timeout=10) as response:
+            body = response.read().decode("utf-8")
+
+        self.assertEqual(response.status, 200)
+        self.assertIn("<!doctype html>", body.lower())
+        self.assertIn("app.js", body)
+        self.assertEqual(response.headers["Content-Type"], "text/html; charset=utf-8")
+
+    def test_public_assets_are_served_by_python_handler(self) -> None:
+        with urlopen(f"{self.base_url}/app.js", timeout=10) as response:
+            body = response.read().decode("utf-8")
+
+        self.assertEqual(response.status, 200)
+        self.assertIn("connectRealtimeSocket", body)
+        self.assertEqual(response.headers["Content-Type"], "application/javascript; charset=utf-8")
+
+    def test_static_assets_fall_back_to_packaged_admin_files(self) -> None:
+        original_public_root = vercel_api.PUBLIC_ROOT
+        vercel_api.PUBLIC_ROOT = Path(self.tempdir.name) / "missing-public"
+        try:
+            with urlopen(f"{self.base_url}/", timeout=10) as response:
+                body = response.read().decode("utf-8")
+        finally:
+            vercel_api.PUBLIC_ROOT = original_public_root
+
+        self.assertEqual(response.status, 200)
+        self.assertIn("app.js", body)
+
     def test_config_endpoint_uses_tmp_runtime_root(self) -> None:
         payload = self.get_json("/api/config")
 
