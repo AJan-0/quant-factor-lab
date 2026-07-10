@@ -8,6 +8,9 @@ import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.request import Request, urlopen
+from unittest.mock import patch
+
+import pandas as pd
 
 import api.index as vercel_api
 
@@ -93,6 +96,40 @@ class VercelApiTests(unittest.TestCase):
         with urlopen(request, timeout=10) as response:
             self.assertEqual(response.status, 204)
             self.assertEqual(response.headers["Access-Control-Allow-Origin"], "https://ajan-0.github.io")
+
+    def test_market_endpoint_uses_okx_fallback_when_no_run_artifacts_exist(self) -> None:
+        class FakeOKXProvider:
+            def __init__(self, **_: object) -> None:
+                pass
+
+            def load(self, request: object) -> pd.DataFrame:
+                timestamps = pd.date_range("2026-07-09 00:00:00", periods=30, freq="h")
+                rows = []
+                for index, timestamp in enumerate(timestamps):
+                    close = 3000 + index
+                    rows.append(
+                        {
+                            "timestamp": timestamp,
+                            "symbol": "ETH-USD",
+                            "open": close - 2,
+                            "high": close + 4,
+                            "low": close - 5,
+                            "close": close,
+                            "volume": 100 + index,
+                            "asset_class": "crypto",
+                            "frequency": "1h",
+                        }
+                    )
+                return pd.DataFrame(rows)
+
+        with patch.object(vercel_api, "OKXMarketDataProvider", FakeOKXProvider):
+            payload = self.get_json("/api/market?symbol=ETH-USD&limit=20")
+
+        self.assertEqual(payload["source"], "okx-live-fallback")
+        self.assertEqual(payload["selectedSymbol"], "ETH-USD")
+        self.assertEqual(payload["symbols"], ["ETH-USD"])
+        self.assertEqual(len(payload["rows"]), 20)
+        self.assertIn("ema_20", payload["rows"][-1])
 
     def get_json(self, path: str) -> dict:
         with urlopen(f"{self.base_url}{path}", timeout=10) as response:

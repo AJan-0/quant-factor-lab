@@ -12,11 +12,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+import pandas as pd
+
 from quant_factor_lab.admin.server import AdminApp, _json_ready
+from quant_factor_lab.data import OKXMarketDataProvider
 from quant_factor_lab.microstructure import OKXMicrostructureSnapshotProvider, okx_spot_inst_id
 from quant_factor_lab.realtime import _book_row, _trade_row
 from quant_factor_lab.run_store import hash_config
 from quant_factor_lab.runtime import PipelineCancelled, PipelineContext
+from quant_factor_lab.technicals import build_technical_indicator_panel
 from quant_factor_lab.types import AssetClass, DataRequest
 
 
@@ -59,7 +63,7 @@ class handler(BaseHTTPRequestHandler):
             elif parsed.path == "/api/summary":
                 self._send_json(app.load_snapshot())
             elif parsed.path == "/api/market":
-                self._send_json(app.load_market_series(parsed.query))
+                self._send_json(_market_series(app, parsed.query))
             elif parsed.path == "/api/runs":
                 self._send_json(app.list_runs(parsed.query))
             elif parsed.path.startswith("/api/runs/"):
@@ -349,6 +353,76 @@ def _list_jobs() -> list[dict[str, Any]]:
         return []
     jobs = [_load_job(path.stem) for path in JOBS_DIR.glob("*.json")]
     return sorted([job for job in jobs if job], key=lambda item: item.get("createdAt") or "", reverse=True)[:50]
+
+
+def _market_series(app: AdminApp, query: str) -> dict[str, Any]:
+    payload = app.load_market_series(query)
+    if payload.get("rows"):
+        return payload
+    try:
+        fallback = _fetch_okx_market_series(app.load_config(), query)
+    except Exception as exc:
+        payload["error"] = str(exc)
+        return payload
+    return fallback if fallback.get("rows") else payload
+
+
+def _fetch_okx_market_series(config: dict[str, Any], query: str) -> dict[str, Any]:
+    params = parse_qs(query)
+    requested_symbol = params.get("symbol", [""])[0]
+    try:
+        limit = max(20, min(int(params.get("limit", ["240"])[0]), 1000))
+    except ValueError:
+        limit = 240
+
+    data_config = config.get("data", {})
+    configured_request = DataRequest.from_config(data_config)
+    universe = tuple(item for item in configured_request.universe if item.asset_class == AssetClass.CRYPTO)
+    if not universe:
+        return {"symbols": [], "selectedSymbol": requested_symbol, "rows": []}
+
+    step = _frequency_step(configured_request)
+    end = pd.Timestamp.now(tz="UTC").tz_localize(None) + step
+    start = end - step * (limit + 30)
+    request = DataRequest(
+        universe=universe,
+        start=start,
+        end=end,
+        frequency=configured_request.frequency,
+    )
+    provider = OKXMarketDataProvider(
+        timeout=float(data_config.get("timeout", 8.0)),
+        page_limit=min(max(limit + 30, 20), 300),
+        max_pages=max(1, min(5, (limit // 300) + 2)),
+        include_unconfirmed=True,
+    )
+    market = provider.load(request)
+    frame = build_technical_indicator_panel(market) if not market.empty else market
+    if frame.empty or "symbol" not in frame.columns:
+        return {"symbols": [], "selectedSymbol": requested_symbol, "rows": []}
+
+    symbols = sorted(str(symbol) for symbol in frame["symbol"].dropna().unique())
+    selected_symbol = requested_symbol if requested_symbol in symbols else (symbols[0] if symbols else "")
+    if selected_symbol:
+        frame = frame[frame["symbol"].astype(str) == selected_symbol]
+    frame = frame.sort_values("timestamp").tail(limit).copy()
+    if "timestamp" in frame.columns:
+        frame["timestamp"] = pd.to_datetime(frame["timestamp"], errors="coerce").dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {
+        "symbols": symbols,
+        "selectedSymbol": selected_symbol,
+        "rows": [_json_ready(row) for row in frame.to_dict(orient="records")],
+        "source": "okx-live-fallback",
+    }
+
+
+def _frequency_step(request: DataRequest) -> pd.Timedelta:
+    return {
+        "1d": pd.Timedelta(days=1),
+        "1h": pd.Timedelta(hours=1),
+        "5m": pd.Timedelta(minutes=5),
+        "1m": pd.Timedelta(minutes=1),
+    }[request.frequency.value]
 
 
 def _realtime_snapshot(config: dict[str, Any], force_refresh: bool = False) -> dict[str, Any]:

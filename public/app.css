@@ -1236,18 +1236,16 @@ td select {
   }
 
   .nav-list {
-    display: flex;
-    max-width: 100%;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(76px, 1fr));
     gap: 8px;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    padding-bottom: 4px;
+    max-width: 100%;
+    overflow: visible;
   }
 
   .nav-item {
-    flex: 0 0 auto;
-    width: auto;
-    min-width: 84px;
+    width: 100%;
+    min-width: 0;
     text-align: center;
   }
 
@@ -1293,12 +1291,12 @@ td select {
   }
 
   .nav-list {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
-    margin: 0 -12px;
-    padding: 0 12px 4px;
-    overflow-x: auto;
-    scrollbar-width: none;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
   }
 
   .nav-list::-webkit-scrollbar {
@@ -1306,11 +1304,10 @@ td select {
   }
 
   .nav-item {
-    flex: 0 0 auto;
-    width: auto;
-    min-width: 72px;
+    width: 100%;
+    min-width: 0;
     min-height: 34px;
-    padding: 0 12px;
+    padding: 0 8px;
     text-align: center;
     white-space: nowrap;
   }
@@ -1355,7 +1352,6 @@ td select {
   .decision-grid,
   .decision-stats,
   .decision-facts,
-  .nav-list,
   .signal-controls,
   .signal-summary,
   .quality-summary,

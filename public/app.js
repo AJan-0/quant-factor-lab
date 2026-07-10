@@ -346,6 +346,7 @@ async function stopRealtime() {
 function maybeStartRealtimeSocket(options = {}) {
   if (state.config?.realtime?.enabled === false) return false;
   if (isRealtimeSocketActive() || realtimeSocket.reconnectTimer) return true;
+  if (!options.force && !shouldAutoStartRealtimeSocket()) return false;
   return connectRealtimeSocket(options);
 }
 
@@ -405,15 +406,10 @@ function connectRealtimeSocket({ silent = false, force = false } = {}) {
     if (realtimeSocket.ws !== ws) return;
     realtimeSocket.ws = null;
     if (realtimeSocket.manualStop) return;
-    if (!realtimeSocket.opened) realtimeSocket.failureCount += 1;
-    if (realtimeSocket.failureCount >= 3) {
-      realtimeSocket.disabledUntil = Date.now() + REALTIME_SOCKET_DISABLE_MS;
-      state.realtime = realtimeWithEvent("WARN", "WebSocket 暂不可用，临时切换 REST 轮询", {
-        status: "starting",
-        transport: "rest",
-      });
-      renderRealtime();
-      refreshRealtime();
+    const failedBeforeOpen = !realtimeSocket.opened;
+    if (failedBeforeOpen) realtimeSocket.failureCount += 1;
+    if ((silent && failedBeforeOpen && !force) || realtimeSocket.failureCount >= 3) {
+      fallbackRealtimeToRest("WebSocket 暂不可用，临时切换 REST 轮询");
       return;
     }
     scheduleRealtimeReconnect();
@@ -429,6 +425,19 @@ function connectRealtimeSocket({ silent = false, force = false } = {}) {
   });
 
   return true;
+}
+
+function fallbackRealtimeToRest(message) {
+  realtimeSocket.disabledUntil = Date.now() + REALTIME_SOCKET_DISABLE_MS;
+  realtimeSocket.failureCount = 0;
+  realtimeSocket.reconnectDelay = 1000;
+  state.realtime = realtimeWithEvent("WARN", message, {
+    status: "running",
+    error: null,
+    transport: "rest",
+  });
+  renderRealtime();
+  refreshRealtime();
 }
 
 function disconnectRealtimeSocket() {
@@ -462,6 +471,12 @@ function scheduleRealtimeReconnect() {
 
 function supportsRealtimeSocket() {
   return !runtime.staticSite && "WebSocket" in window;
+}
+
+function shouldAutoStartRealtimeSocket() {
+  if (runtime.staticSite) return false;
+  if (runtime.apiBaseUrl) return true;
+  return !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 }
 
 function isRealtimeSocketActive() {
