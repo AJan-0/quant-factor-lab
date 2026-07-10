@@ -168,6 +168,7 @@ async function loadAll() {
   setBusy(true, "加载中");
   try {
     const configPayload = await fetchJson("/api/config");
+    runtime.supportsWebSocketRoute = configPayload.runtime?.supportsWebSocketRoute !== false;
     state.config = withDefaults(configPayload.config);
     state.configPath = configPayload.configPath;
     state.snapshot = await fetchJson("/api/summary");
@@ -475,6 +476,7 @@ function supportsRealtimeSocket() {
 
 function shouldAutoStartRealtimeSocket() {
   if (runtime.staticSite) return false;
+  if (runtime.supportsWebSocketRoute === false) return false;
   if (runtime.apiBaseUrl) return true;
   return !["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 }

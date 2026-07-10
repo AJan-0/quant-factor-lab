@@ -57,9 +57,9 @@ class handler(BaseHTTPRequestHandler):
                 return
             app = _admin_app()
             if parsed.path == "/api/health":
-                self._send_json({"status": "ok", "mode": "vercel"})
+                self._send_json({"status": "ok", "mode": "vercel", "runtime": _runtime_capabilities()})
             elif parsed.path == "/api/config":
-                self._send_json({"configPath": "vercel:/tmp/config.json", "config": app.load_config()})
+                self._send_json({"configPath": "vercel:/tmp/config.json", "config": app.load_config(), "runtime": _runtime_capabilities()})
             elif parsed.path == "/api/summary":
                 self._send_json(app.load_snapshot())
             elif parsed.path == "/api/market":
@@ -423,6 +423,10 @@ def _frequency_step(request: DataRequest) -> pd.Timedelta:
         "5m": pd.Timedelta(minutes=5),
         "1m": pd.Timedelta(minutes=1),
     }[request.frequency.value]
+
+
+def _runtime_capabilities() -> dict[str, Any]:
+    return {"supportsWebSocketRoute": os.environ.get("VERCEL") == "1"}
 
 
 def _realtime_snapshot(config: dict[str, Any], force_refresh: bool = False) -> dict[str, Any]:

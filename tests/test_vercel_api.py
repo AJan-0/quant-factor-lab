@@ -80,6 +80,7 @@ class VercelApiTests(unittest.TestCase):
         self.assertEqual(payload["configPath"], "vercel:/tmp/config.json")
         self.assertEqual(payload["config"]["output_dir"], "runs/vercel-latest")
         self.assertFalse(payload["config"]["mining"]["enable_ml_miner"])
+        self.assertFalse(payload["runtime"]["supportsWebSocketRoute"])
         self.assertIn("data", payload["config"])
 
     def test_options_preflight_sends_cors_headers(self) -> None:
